@@ -10,6 +10,10 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    AIRFLOW__METRICS__STATSD_ON: 'true'
+    AIRFLOW__METRICS__STATSD_HOST: statsd-exporter   # 같은 docker network면 컨테이너명
+    AIRFLOW__METRICS__STATSD_PORT: 8125  
+    AIRFLOW__METRICS__STATSD_PREFIX: airflow
     AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
     AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     AWS_DEFAULT_REGION: ap-northeast-2
@@ -88,5 +92,20 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  statsd-exporter:
+    image: prom/statsd-exporter:v0.28.0
+    command: ["--statsd.mapping-config=/etc/statsd/mapping.yml"]
+    volumes: ["./mapping.yml:/etc/statsd/mapping.yml"]
+    ports: ["9102:9102", "8125:8125/udp"]
+    restart: unless-stopped
+    
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes: ["/:/host:ro,rslave"]
+    ports: ["9100:9100"]
+    restart: unless-stopped
+    
 volumes:
   postgres-db:
