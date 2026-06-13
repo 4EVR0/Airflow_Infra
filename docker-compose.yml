@@ -94,7 +94,10 @@ services:
 
   statsd-exporter:
     image: prom/statsd-exporter:v0.28.0
-    command: ["--statsd.mapping-config=/etc/statsd/mapping.yml"]
+    command: [
+      "--statsd.mapping-config=/etc/statsd/mapping.yml",
+      "--statsd.listen-udp=:8125"
+    ]
     volumes: ["./mapping.yml:/etc/statsd/mapping.yml"]
     ports: ["9102:9102", "8125:8125/udp"]
     restart: unless-stopped
