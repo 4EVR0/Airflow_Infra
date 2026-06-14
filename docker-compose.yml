@@ -111,10 +111,12 @@ services:
 
   alloy:
     image: grafana/alloy:v1.8.3
+    env_file:
+      - .env
     volumes:
-      - /home/airflow/logs:/opt/airflow/logs:ro
+      - ./logs:/opt/airflow/logs:ro
       - ./alloy-airflow.alloy:/etc/alloy/config.alloy:ro
     command: run /etc/alloy/config.alloy
-    restart: always    
+    restart: always
 volumes:
   postgres-db:
