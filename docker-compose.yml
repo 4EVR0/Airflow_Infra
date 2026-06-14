@@ -108,6 +108,13 @@ services:
     volumes: ["/:/host:ro,rslave"]
     ports: ["9100:9100"]
     restart: unless-stopped
-    
+
+  alloy:
+    image: grafana/alloy:v1.8.3
+    volumes:
+      - /home/airflow/logs:/opt/airflow/logs:ro
+      - ./alloy-airflow.alloy:/etc/alloy/config.alloy:ro
+    command: run /etc/alloy/config.alloy
+    restart: always    
 volumes:
   postgres-db:
