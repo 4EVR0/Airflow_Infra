@@ -1,0 +1,69 @@
+// ============================================================
+//  Airflow EC2 에 배포할 Alloy 설정 (이 파일은 airflow 서버로 복사해서 사용)
+//  로그 → Loki(모니터링서버 172.31.39.212:3100) push
+//  라벨: job / host / dag_id / task_id  (run_id 는 라벨로 안 씀 = 카디널리티 폭발 방지)
+// ============================================================
+
+// ---------- Loki 엔드포인트 (받는 쪽 = 모니터링 서버 VPC 사설 IP) ----------
+loki.write "default" {
+  endpoint {
+    url = "http://172.31.39.212:3100/loki/api/v1/push"
+  }
+}
+
+// ---------- (1) 태스크 로그: 가장 중요 ----------
+// Airflow 2.x 경로: logs/dag_id=<>/run_id=<>/task_id=<>/attempt=<n>.log
+local.file_match "airflow_tasks" {
+  path_targets = [{
+    __path__ = "/opt/airflow/logs/**/*.log",
+    job      = "airflow",
+    host     = "airflow-ec2",
+  }]
+}
+
+loki.source.file "airflow_tasks" {
+  targets    = local.file_match.airflow_tasks.targets
+  forward_to = [loki.process.airflow_tasks.receiver]
+}
+
+loki.process "airflow_tasks" {
+  // 파일 경로(filename)에서 dag_id / task_id 추출
+  stage.regex {
+    source     = "filename"
+    expression = "dag_id=(?P<dag_id>[^/]+)/run_id=(?P<run_id>[^/]+)/task_id=(?P<task_id>[^/]+)"
+  }
+  // 추출값 중 dag_id, task_id 만 라벨로 승격 (run_id 제외)
+  stage.labels {
+    values = {
+      dag_id  = "",
+      task_id = "",
+    }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+// ---------- (2) 컴포넌트 로그(scheduler/webserver/worker stdout) : 선택 ----------
+// airflow 가 docker-compose 로 도는 경우, 컨테이너 stdout 을 수집.
+// 사용하려면 아래 주석 해제 + compose 에서 docker.sock 마운트 필요.
+//
+// discovery.docker "airflow" {
+//   host = "unix:///var/run/docker.sock"
+// }
+// discovery.relabel "airflow" {
+//   targets = discovery.docker.airflow.targets
+//   rule {   // 컨테이너 이름에 airflow 들어간 것만
+//     source_labels = ["__meta_docker_container_name"]
+//     regex         = ".*airflow.*"
+//     action        = "keep"
+//   }
+//   rule {   // 컨테이너 이름을 component 라벨로
+//     source_labels = ["__meta_docker_container_name"]
+//     target_label  = "component"
+//   }
+// }
+// loki.source.docker "airflow_components" {
+//   host       = "unix:///var/run/docker.sock"
+//   targets    = discovery.relabel.airflow.output
+//   labels     = { job = "airflow", host = "airflow-ec2" }
+//   forward_to = [loki.write.default.receiver]
+// }

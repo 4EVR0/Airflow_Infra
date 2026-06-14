@@ -1,0 +1,32 @@
+// 받는 쪽 = 모니터링 서버(VPC 사설 IP)
+loki.write "default" {
+  endpoint {
+    url = "<http://172.31.39.212:3100/loki/api/v1/push>"
+  }
+}
+
+// 태스크 로그 파일 매칭
+local.file_match "airflow_tasks" {
+  path_targets = [{
+    __path__ = "/opt/airflow/logs/**/*.log",
+    job      = "airflow",
+    host     = "airflow-ec2",
+  }]
+}
+
+loki.source.file "airflow_tasks" {
+  targets    = local.file_match.airflow_tasks.targets
+  forward_to = [loki.process.airflow_tasks.receiver]
+}
+
+// 경로(filename)에서 dag_id / task_id 추출 → 라벨 승격 (run_id 제외)
+loki.process "airflow_tasks" {
+  stage.regex {
+    source     = "filename"
+    expression = "dag_id=(?P<dag_id>[^/]+)/run_id=(?P<run_id>[^/]+)/task_id=(?P<task_id>[^/]+)"
+  }
+  stage.labels {
+    values = { dag_id = "", task_id = "" }
+  }
+  forward_to = [loki.write.default.receiver]
+}
