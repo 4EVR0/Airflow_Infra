@@ -27,9 +27,7 @@ x-airflow-common: &airflow-common
     - /opt/airflow-docker:/home/airflow/.docker:ro
     - /usr/bin/docker-credential-ecr-login:/usr/local/bin/docker-credential-ecr-login:ro
     - /var/run/docker.sock:/var/run/docker.sock
-  user: "${AIRFLOW_UID:-50000}:0"
-  group_add:
-    - "112"
+  user: "0:0"
   depends_on:
     postgres:
       condition: service_healthy
