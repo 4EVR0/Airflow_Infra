@@ -1,0 +1,96 @@
+// ============================================================
+//  Airflow 서버에 배포할 Alloy 설정 (EC2 / 홈서버 공통)
+//  로그 → Loki push / 메트릭 → Prometheus remote_write push
+//  환경변수 (.env 주입): LOKI_URL, PROMETHEUS_URL, HOST_NAME
+// ============================================================
+
+// ---------- Loki 엔드포인트 ----------
+loki.write "default" {
+  endpoint {
+    url = env("LOKI_URL")
+  }
+}
+
+// ---------- Prometheus remote_write 엔드포인트 ----------
+prometheus.remote_write "monitoring" {
+  endpoint {
+    url = env("PROMETHEUS_URL")
+  }
+}
+
+// ---------- host 라벨 추가 (EC2 / 홈서버 구분) ----------
+prometheus.relabel "add_host" {
+  forward_to = [prometheus.remote_write.monitoring.receiver]
+  rule {
+    target_label = "host"
+    replacement  = env("HOST_NAME")
+  }
+}
+
+// ---------- statsd-exporter 스크레이프 ----------
+prometheus.scrape "airflow_statsd" {
+  targets    = [{"__address__" = "statsd-exporter:9102"}]
+  job_name   = "airflow-statsd"
+  forward_to = [prometheus.relabel.add_host.receiver]
+}
+
+// ---------- node-exporter 스크레이프 ----------
+prometheus.scrape "airflow_node" {
+  targets    = [{"__address__" = "node-exporter:9100"}]
+  job_name   = "airflow-node"
+  forward_to = [prometheus.relabel.add_host.receiver]
+}
+
+// ---------- 태스크 로그 ----------
+// Airflow 2.x 경로: logs/dag_id=<>/run_id=<>/task_id=<>/attempt=<n>.log
+local.file_match "airflow_tasks" {
+  path_targets = [{
+    __path__ = "/opt/airflow/logs/**/*.log",
+    job      = "airflow",
+    host     = env("HOST_NAME"),
+  }]
+}
+
+loki.source.file "airflow_tasks" {
+  targets    = local.file_match.airflow_tasks.targets
+  forward_to = [loki.process.airflow_tasks.receiver]
+}
+
+loki.process "airflow_tasks" {
+  stage.regex {
+    source     = "filename"
+    expression = "dag_id=(?P<dag_id>[^/]+)/run_id=(?P<run_id>[^/]+)/task_id=(?P<task_id>[^/]+)"
+  }
+  stage.labels {
+    values = {
+      dag_id  = "",
+      task_id = "",
+    }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+// ---------- (선택) 컴포넌트 로그 — scheduler/webserver/worker stdout ----------
+// 사용하려면 아래 주석 해제 + docker-compose Alloy 서비스에 docker.sock 마운트 추가.
+//
+// discovery.docker "airflow" {
+//   host = "unix:///var/run/docker.sock"
+// }
+// discovery.relabel "airflow" {
+//   targets = discovery.docker.airflow.targets
+//   rule {
+//     source_labels = ["__meta_docker_container_name"]
+//     regex         = ".*airflow.*"
+//     action        = "keep"
+//   }
+//   rule {
+//     source_labels = ["__meta_docker_container_name"]
+//     target_label  = "component"
+//   }
+// }
+// loki.source.docker "airflow_components" {
+//   host       = "unix:///var/run/docker.sock"
+//   targets    = discovery.relabel.airflow.output
+//   labels     = { job = "airflow", host = env("HOST_NAME") }
+//   forward_to = [loki.write.default.receiver]
+// }
