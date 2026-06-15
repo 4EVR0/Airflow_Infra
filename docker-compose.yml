@@ -26,6 +26,7 @@ x-airflow-common: &airflow-common
     - ./pipelines:/opt/airflow/pipelines
     - /opt/airflow-docker:/home/airflow/.docker:ro
     - /usr/bin/docker-credential-ecr-login:/usr/local/bin/docker-credential-ecr-login:ro
+    - /opt/airflow-docker/config.json:/root/.docker/config.json:ro   
     - /var/run/docker.sock:/var/run/docker.sock
   user: "0:0"
   depends_on:
