@@ -20,6 +20,9 @@ x-airflow-common: &airflow-common
     AWS_DEFAULT_REGION: ap-northeast-2
     ECR_REGISTRY: ${ECR_REGISTRY}
     OLIVEYOUNG_S3_BUCKET: ${OLIVEYOUNG_S3_BUCKET}
+    NEO4J_BOLT_URI: ${NEO4J_BOLT_URI}
+    NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+    NEO4J_USER: ${NEO4J_USER}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
