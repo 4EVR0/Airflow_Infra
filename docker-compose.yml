@@ -114,6 +114,22 @@ services:
     ports: ["9100:9100"]
     restart: unless-stopped
 
+  # Airflow webserver의 로컬 읽기 전용 REST API만 조회한다. 호스트 포트는 열지 않는다.
+  airflow-observer:
+    profiles: ["observer"]  # 기존 전체 스택 up 시 계정 준비 전 자동 시작하지 않음
+    build: ./airflow_exporter
+    environment:
+      AIRFLOW_API_URL: http://airflow-webserver:8080/api/v1
+      AIRFLOW_EXPORTER_USERNAME: ${AIRFLOW_EXPORTER_USERNAME:-}
+      AIRFLOW_EXPORTER_PASSWORD: ${AIRFLOW_EXPORTER_PASSWORD:-}
+      AIRFLOW_EXPORTER_INTERVAL_SECONDS: "60"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
+
   alloy:
     image: grafana/alloy:v1.8.3
     env_file:

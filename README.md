@@ -9,8 +9,9 @@ DAG 심링크, 메트릭/로그 수집)를 관리한다.
 
 ```
 docker-compose.yml      Airflow 2.9.2 · LocalExecutor · PostgreSQL 15
-                        + statsd/node exporter · Alloy (메트릭·로그 수집)
+                        + statsd/node exporter · 상태 observer · Alloy (메트릭·로그 수집)
 alloy-airflow.alloy     로그 → Loki, 메트릭 → Prometheus remote_write (push)
+airflow_exporter/       Airflow REST → 현재/직전 DAG·태스크 상태 Prometheus 메트릭
 mapping.yml             statsd → Prometheus 메트릭 매핑
 setup.sh                파이프라인 레포 clone/pull
 dags/                   각 파이프라인 레포의 DAG 파일 심링크
@@ -43,10 +44,16 @@ Compose env → DAG → DockerOperator 로 전달한다.
 
 - **메트릭**: statsd-exporter(DAG/태스크 지표) + node-exporter(호스트)를 Alloy 가 스크레이프해
   Prometheus 로 `remote_write` push. `host` 라벨로 EC2/홈서버를 구분한다
+- **실행 상태**: host-local `airflow-observer`가 Airflow REST를 읽어 현재 DAG·태스크와
+  직전 완료 결과를 내보낸다. 수집 실패는 `airflow_observer_collection_success=0`으로
+  표시한다. 크롤 실제 진행/정체 신호는 여기에 포함되지 않는다
 - **로그**: Airflow 태스크 로그(`/opt/airflow/logs`)를 Alloy 가 tail 해 Loki 로 push
   `dag_id` / `task_id` 라벨을 붙여 Grafana 에서 메트릭 → 로그로 점프할 수 있다
 
 홈서버는 모니터링 서버와 망이 달라 pull 이 안 되므로, 양쪽 모두 Alloy push 방식으로 통일했다
+
+observer의 계정 생성·크롤 중 비중단 배포 절차는
+[`airflow_exporter/README.md`](airflow_exporter/README.md)를 따른다.
 
 ## 세팅
 

@@ -41,6 +41,14 @@ prometheus.scrape "airflow_node" {
   forward_to = [prometheus.relabel.add_host.receiver]
 }
 
+// ---------- Airflow 상태 observer (로컬 REST 조회; 외부 포트 미개방) ----------
+prometheus.scrape "airflow_observer" {
+  targets         = [{"__address__" = "airflow-observer:9110"}]
+  job_name        = "airflow-observer"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.relabel.add_host.receiver]
+}
+
 // ---------- 태스크 로그 ----------
 // Airflow 2.x 경로: logs/dag_id=<>/run_id=<>/task_id=<>/attempt=<n>.log
 local.file_match "airflow_tasks" {
