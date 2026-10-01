@@ -32,6 +32,7 @@ Compose env → DAG → DockerOperator 로 전달한다.
 |-----|--------|------|
 | `oliveyoung_crawling` | 3일마다 | crawl → 파이프라인 트리거 |
 | `oliveyoung_pipeline` | 트리거 | sync_reference → bronze_to_silver → silver_to_gold → neo4j_incremental |
+| `oliveyoung_backfill` | 수동 | 과거 Bronze run → Silver history + 백필 DQ (dry-run 후 별도 apply) |
 | `oliveyoung_silver_to_neo4j_csv` | 수동 | Neo4j 초기 적재 (일회성) |
 | `inci_monthly_pipeline` | 매월 1일 | bronze(kcia·cosing 병렬) → silver_mapping → gold |
 
@@ -69,6 +70,19 @@ cp .env.example .env        # 값 채우기 (EC2 는 IAM Role, 홈서버는 IAM 
 docker compose up -d
 ```
 
+REST observer는 `observer` Compose profile로 opt-in한다. 먼저 Airflow UI에 `Viewer` 역할의
+전용 읽기 계정을 만들고 `.env`의 `AIRFLOW_EXPORTER_USERNAME/PASSWORD`를 채운 뒤 시작한다.
+
+```bash
+docker compose --profile observer up -d --no-deps --build airflow-observer
+docker compose exec airflow-observer python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:9110/metrics').read().decode())"
+docker compose up -d --no-deps --force-recreate alloy
+```
+
+첫 명령은 실행 중인 scheduler/webserver/postgres를 재시작하지 않는다. 메트릭에서
+`airflow_observer_collection_success 1`을 확인하고, 자세한 안전 배포·장애 판별 방법은
+[`airflow_exporter/README.md`](airflow_exporter/README.md)를 따른다.
+
 DAG 심링크는 EC2 기준으로 커밋돼 있다. 새 서버라면 동일하게 만든다.
 
 ```bash
@@ -90,6 +104,7 @@ EC2 에서 `git -C /home/airflow pull` 을 실행한다(SSH·상시 키 불필�
 ./setup.sh                              # 파이프라인 레포 전체 업데이트
 git -C pipelines/<repo> pull             # 개별 업데이트
 docker compose restart                   # Airflow 재시작
+docker compose --profile observer up -d --no-deps --build airflow-observer
 ```
 
 > Alloy 설정(`.env`)을 바꾼 뒤에는 `docker compose up -d --force-recreate alloy`.
