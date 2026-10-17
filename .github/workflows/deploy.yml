@@ -1,28 +1,77 @@
 name: Deploy to EC2
 
+# Airflow EC2 배포. 홈서버는 SSM이 닿지 않아 대상 아님(tailnet으로 수동 반영).
+#   deploy : git pull + DAG 실행에 영향 없는 서비스(alloy·statsd-exporter·observer) 자동 반영
+#   restart: docker-compose.yml이 바뀌어 scheduler·webserver 재생성이 필요할 때만,
+#            environment 'airflow-restart' 승인 후 실행(실행 중 DAG가 없는 시점을 사람이 고름)
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
-  id-token: write
+  id-token: write   # GitHub OIDC → AWS 역할(장기 키 없음)
   contents: read
+
+concurrency:
+  group: deploy-airflow-ec2
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  INSTANCE_ID: i-0624b5122e160bea3   # adv-airflow
+  REPO_DIR: /home/airflow
+  ROLE_ARN: arn:aws:iam::973972497926:role/GitHubActionsSSMRole
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    outputs:
+      restart_needed: ${{ steps.result.outputs.restart_needed }}
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::973972497926:role/GitHubActionsSSMRole
-          aws-region: ap-northeast-2
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Deploy via SSM
+      - name: Pull and apply safe services via SSM
         run: |
-          aws ssm send-command \
-            --instance-id i-0624b5122e160bea3 \
-            --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["git -C /home/airflow pull"]' \
-            --region ap-northeast-2
+          # .git 소유자 권한으로 이전 SHA 기록 → pull → 새 버전 deploy.sh가 바뀐 파일만 반영
+          cat > params.json <<EOF
+          {"commands": [
+            "set -e",
+            "cd ${REPO_DIR}",
+            "OWNER=\$(stat -c %U .git)",
+            "BEFORE=\$(runuser -u \"\$OWNER\" -- git rev-parse HEAD)",
+            "runuser -u \"\$OWNER\" -- git pull --ff-only",
+            "bash scripts/deploy.sh auto \"\$BEFORE\""
+          ]}
+          EOF
+          bash scripts/ssm-run.sh "$INSTANCE_ID" params.json "airflow deploy ${GITHUB_SHA::7}"
+
+      - name: Read restart marker
+        id: result
+        run: |
+          needed=$(grep -oE '^RESTART_NEEDED=(true|false)' ssm-stdout.txt | cut -d= -f2 || true)
+          echo "restart_needed=${needed:-false}" >> "$GITHUB_OUTPUT"
+          echo "scheduler·webserver 재시작 필요: ${needed:-false}"
+
+  restart:
+    needs: deploy
+    if: needs.deploy.outputs.restart_needed == 'true'
+    runs-on: ubuntu-latest
+    environment: airflow-restart   # 리뷰어 승인 전까지 대기. 승인 전 Airflow 대시보드에서 실행 중 DAG 확인
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Restart Airflow services via SSM
+        run: |
+          cat > params.json <<EOF
+          {"commands": ["set -e", "cd ${REPO_DIR}", "bash scripts/deploy.sh restart"]}
+          EOF
+          bash scripts/ssm-run.sh "$INSTANCE_ID" params.json "airflow restart ${GITHUB_SHA::7}"
