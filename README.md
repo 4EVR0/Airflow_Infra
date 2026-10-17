@@ -91,12 +91,20 @@ ln -sf ../pipelines/<repo>/dags/<file>.py dags/<dag_name>.py
 
 ## 배포 (CI/CD)
 
-`main` 에 push 하면 `.github/workflows/deploy.yml` 이 EC2 를 자동 갱신한다.
-GitHub Actions 가 OIDC 로 `GitHubActionsSSMRole` 을 assume → SSM `send-command` 로
-EC2 에서 `git -C /home/airflow pull` 을 실행한다(SSH·상시 키 불필요).
+`main` 에 push 하면 `.github/workflows/deploy.yml` 이 EC2(`/home/airflow`)를 갱신한다.
+GitHub Actions 가 OIDC 로 `GitHubActionsSSMRole` 을 assume → SSM `send-command`(SSH·상시 키 불필요).
+SSM 결과(stdout·stderr·상태)를 Actions 로그에 남기고, 원격 명령이 실패하면 workflow도 실패한다(`scripts/ssm-run.sh`).
 
-> 심링크·Compose 변경까지 반영하려면 pull 뒤 `docker compose up -d` 가 필요하다.
-> DAG 코드 변경은 pull 만으로 반영된다(스케줄러가 재파싱).
+| job | 언제 | 하는 일 |
+|-----|------|--------|
+| `deploy` | 머지마다 자동 | `.git` 소유자 권한으로 `git pull --ff-only` → `scripts/deploy.sh auto`: `alloy-airflow.alloy` → alloy 재생성, `mapping.yml` → statsd-exporter 재시작, `airflow_exporter/**` → observer 재빌드(떠 있을 때만) |
+| `restart` | `docker-compose.yml`이 바뀌었을 때만, **environment `airflow-restart` 승인 후** | `scripts/deploy.sh restart`: `docker compose up -d`로 바뀐 서비스 재생성 → webserver `/health` 확인 |
+
+- `LocalExecutor`라 scheduler 재생성 = 실행 중 태스크 종료. **승인 전 Airflow 대시보드(observer 패널)에서 실행 중 DAG가 없는지 확인**한다. EC2에서는 크롤 뒤 전처리(3일마다 수 시간)와 INCI(매월 1일)만 돈다.
+- 승인을 미루는 사이 다음 머지가 와도 재시작 필요는 서버의 `/var/tmp/airflow-restart-pending` 표시로 유지되고, 재시작 성공 뒤 지운다.
+- DAG 파일(`dags/` 심링크)·문서 변경은 반영할 것이 없다(스케줄러가 DAG 폴더를 다시 읽음).
+- `.env` 변경은 git 밖이라 배포 대상이 아니다 — 서버에서 직접 바꾸고 해당 서비스를 재생성한다(아래 운영).
+- **홈서버는 대상이 아니다**(SSM 미등록). tailnet으로 접속해 `git pull`과 필요한 재시작을 수동으로 한다.
 
 ## 운영
 
