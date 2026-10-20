@@ -1,3 +1,5 @@
+# 이 파일이 main에 머지되면 배포 workflow의 restart job이 environment 'airflow-restart' 승인을
+# 기다린다(LocalExecutor라 scheduler 재생성 = 실행 중 태스크 종료). 승인 전 실행 중 DAG 없음 확인.
 version: '3.8'
 
 x-airflow-common: &airflow-common
