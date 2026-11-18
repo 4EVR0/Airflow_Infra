@@ -1,5 +1,7 @@
 # Airflow_Infra
 
+> 2026-11 운영 종료. EC2 환경과 AWS 연동 리소스는 철거했고, 문서는 운영 당시 기준이다.
+
 - 4EVR0 데이터 파이프라인을 돌리는 Airflow 운영 환경
 - DAG 정의는 각 파이프라인 레포에 두고, 이 레포는 그 DAG 를 묶어 실행하는 인프라(Compose 스택,
 DAG 심링크, 메트릭/로그 수집)를 관리한다.
@@ -123,3 +125,14 @@ docker compose --profile observer up -d --no-deps --build airflow-observer
 - 웹 UI: `:8080` / Postgres·logs·pipelines 는 볼륨/바인드 마운트로 영속화
 - 파이프라인 태스크는 단발 컨테이너라 직접 스크레이프가 안 된다. 커스텀 데이터 품질 지표는 Pushgateway 대신
   Iceberg `dq_metrics` 테이블 적재 + Discord 완료 리포트로 처리한다(파이프라인 레포 소관)
+
+## 운영 기록
+
+2026-06 ~ 2026-11 운영.
+
+| 환경 | DAG 실행 |
+|---|---|
+| EC2 (전처리·INCI·백필 등) | 137회 |
+| 홈서버 (크롤) | 67회 (2026-06-10 ~ 11-13) |
+
+- 배포 승인 경로는 주석만 바꾼 compose PR로 감지 → 승인 → 재시작 → `/health` 확인까지 운영에서 검증했다(설정 변화가 없어 scheduler는 재생성되지 않음)
